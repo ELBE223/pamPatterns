@@ -1,0 +1,28 @@
+Package: pamPatterns
+Type: Package
+Title: Pattern Analysis for Passive Acoustic Monitoring Data
+Version: 0.1.0
+Authors@R: person(given = "Lucas",
+                   family = "Beseler",
+                   email = "lucas.beseler@hs-anhalt.de",
+                   role = c("aut", "cre"))
+Description: Provides tools for reading acoustic detection data (e.g., from
+    BirdNET), calculating a comprehensive set of quantitative pattern
+    indicators related to confidence scores, temporal distribution, and
+    spatial ubiquity. Facilitates quality control, identification of
+    potential irregularities, and prioritization for manual validation of
+    acoustic monitoring results. The focus is on uncovering patterns in PAM data.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.1
+Imports:
+    dplyr (>= 1.0.0),
+    readr (>= 2.0.0),
+    lubridate (>= 1.7.0),
+    stringr (>= 1.4.0)
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3
