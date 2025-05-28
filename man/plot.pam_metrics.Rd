@@ -4,15 +4,30 @@
 \alias{plot.pam_metrics}
 \title{Plot method for pam_metrics objects}
 \usage{
-\method{plot}{pam_metrics}(x, type = "overview", ...)
+\method{plot}{pam_metrics}(x, type = "overview", species_name = NULL, ...)
 }
 \arguments{
-\item{x}{A pam_metrics object}
+\item{x}{A `pam_metrics` object.}
 
-\item{type}{Character. Type of plot to create. See \code{\link{plot_pattern_diagnostics}}}
+\item{type}{Character string or vector specifying the type(s) of plot(s) to generate.
+Passed to `plot_type` in \code{\link{plot_pattern_diagnostics}}.
+See \code{\link{plot_pattern_diagnostics}} for available types.
+Default is "overview".}
 
-\item{...}{Additional arguments passed to plot_pattern_diagnostics}
+\item{species_name}{Optional character string, the scientific name of a single
+species for which to generate detailed plots. If NULL (default),
+overview plots are typically generated.}
+
+\item{...}{Additional arguments passed to \code{\link{plot_pattern_diagnostics}}.}
+}
+\value{
+A ggplot object or a list of ggplot objects, invisibly.
 }
 \description{
-Plot method for pam_metrics objects
+This is an S3 method that dispatches to \code{\link{plot_pattern_diagnostics}}.
+It attempts to retrieve the original detection data if it was stored as an
+attribute in the `pam_metrics` object.
+}
+\seealso{
+\code{\link{plot_pattern_diagnostics}}
 }

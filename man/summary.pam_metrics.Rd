@@ -4,12 +4,14 @@
 \alias{summary.pam_metrics}
 \title{Summary method for pam_metrics objects}
 \usage{
-\method{summary}{pam_metrics}(object, ...)
+\method{summary}{pam_metrics}(object, top_n_flagged = 5, ...)
 }
 \arguments{
 \item{object}{A pam_metrics object}
 
-\item{...}{Additional arguments (unused)}
+\item{top_n_flagged}{Integer, number of top flagged species to list. Default 5.}
+
+\item{...}{Additional arguments (currently unused).}
 }
 \description{
 Summary method for pam_metrics objects

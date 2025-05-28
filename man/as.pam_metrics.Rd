@@ -22,9 +22,11 @@ with special print and summary methods.
 }
 \examples{
 \dontrun{
+# Assuming 'detections_with_id' is your processed detection data
 metrics_df <- calculate_pattern_metrics(detections_with_id)
 metrics_obj <- as.pam_metrics(metrics_df, detection_data = detections_with_id)
 print(metrics_obj)  # Uses custom print method
 summary(metrics_obj)  # Uses custom summary method
+plot(metrics_obj, type = "overview") # Uses custom plot method
 }
 }

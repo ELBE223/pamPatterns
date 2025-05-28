@@ -9,9 +9,10 @@
 \arguments{
 \item{x}{A pam_metrics object}
 
-\item{n}{Number of rows to print (default 10)}
+\item{n}{Integer, number of rows to print from the head of the data frame.
+Default is 10. Use `NULL` or `Inf` to print all rows.}
 
-\item{...}{Additional arguments passed to print}
+\item{...}{Additional arguments passed to the underlying print method for data frames.}
 }
 \description{
 Print method for pam_metrics objects

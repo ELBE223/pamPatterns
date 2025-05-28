@@ -44,7 +44,7 @@
 #'   }
 #'
 #' @export
-#' @importFrom stats median quantile sd na.omit mad
+#' @importFrom stats var lm coef median quantile sd na.omit mad
 #' @examples
 #' \dontrun{
 #' # Assume 'detections_with_id' is prepared as in read_birdnet_data example
@@ -301,7 +301,7 @@ calculate_temporal_metrics <- function(detection_data, total_study_days) {
       Hourly_Evenness_J = dplyr::case_when(
         is.na(.data$Hourly_Shannon_H) | is.na(.data$Hourly_Max_H) ~ NA_real_,
         .data$Hourly_Max_H == 0 & .data$Hourly_Shannon_H == 0 & .data$N_Unique_Hours_Detected == 1 ~ 1.0,
-        .data$Hourly_Max_H == 0 & .data$N_Unique_Hours_Detected > 0 ~ NA_real_,
+        .data$Hourly_Max_H == 0 & .data$N_Unique_Hours_Detected > 0 ~ NA_real_, # Avoid division by zero if Max_H is 0 but Shannon_H is not
         .data$Hourly_Max_H > 0 ~ .data$Hourly_Shannon_H / .data$Hourly_Max_H,
         TRUE ~ NA_real_
       ),
@@ -319,8 +319,14 @@ calculate_temporal_metrics <- function(detection_data, total_study_days) {
 #' @keywords internal
 calculate_spatial_metrics <- function(detection_data, total_plots) {
   if (nrow(detection_data) == 0 || !"AudioMoth_ID_Numeric" %in% names(detection_data)) {
+    # Ensure Scientific_Name column exists in the output even for empty input, matching other helpers
+    sn_col <- if ("Scientific_Name" %in% names(detection_data)) {
+      dplyr::distinct(detection_data, .data$Scientific_Name)$Scientific_Name
+    } else {
+      character(0)
+    }
     return(dplyr::tibble(
-      Scientific_Name = if("Scientific_Name" %in% names(detection_data)) character(0) else dplyr::distinct(detection_data, .data$Scientific_Name)$Scientific_Name,
+      Scientific_Name = sn_col,
       Mean_Dets_Per_Active_Plot = numeric(0), SD_Dets_Per_Active_Plot = numeric(0),
       Max_Dets_Single_Plot = integer(0), Dets_Per_Plot_CV = numeric(0),
       Spatial_Aggregation_Index = numeric(0)
@@ -331,44 +337,45 @@ calculate_spatial_metrics <- function(detection_data, total_plots) {
   plot_summary <- detection_data %>%
     dplyr::filter(!is.na(.data$AudioMoth_ID_Numeric)) %>%
     dplyr::group_by(.data$Scientific_Name, .data$AudioMoth_ID_Numeric) %>%
-    dplyr::summarise(N_Dets_This_Plot = dplyr::n(), .groups = 'drop_last')
+    dplyr::summarise(N_Dets_This_Plot = dplyr::n(), .groups = 'drop_last') # drop_last before main summarise
 
   if(nrow(plot_summary) == 0) {
+    # If no non-NA AudioMoth_ID_Numeric, create an empty structure with all species
     spatial_metrics <- detection_data %>% dplyr::distinct(.data$Scientific_Name) %>%
       dplyr::mutate(Mean_Dets_Per_Active_Plot = NA_real_, SD_Dets_Per_Active_Plot = NA_real_,
-                    Max_Dets_Single_Plot = 0L, N_Active_Plots_Species = 0L,
-                    Spatial_Aggregation_Index = NA_real_)
+                    Max_Dets_Single_Plot = 0L, # N_Active_Plots_Species = 0L, # Not needed for final output
+                    # Variance_Dets = NA_real_, # Not needed for final output
+                    Spatial_Aggregation_Index = NA_real_, Dets_Per_Plot_CV = NA_real_) # Ensure all output cols are present
   } else {
-    spatial_metrics <- plot_summary %>%
+    spatial_metrics <- plot_summary %>% # Now group by Scientific_Name only for species-level summary
+      dplyr::group_by(.data$Scientific_Name) %>%
       dplyr::summarise(
-        N_Active_Plots_Species = dplyr::n_distinct(.data$AudioMoth_ID_Numeric, na.rm = TRUE),
+        N_Active_Plots_Species = dplyr::n_distinct(.data$AudioMoth_ID_Numeric, na.rm = TRUE), # Count of plots with detections for this species
         Mean_Dets_Per_Active_Plot = mean(.data$N_Dets_This_Plot, na.rm = TRUE),
-        SD_Dets_Per_Active_Plot = if(dplyr::n() > 1) stats::sd(.data$N_Dets_This_Plot, na.rm = TRUE) else NA_real_,
+        SD_Dets_Per_Active_Plot = if(dplyr::n_distinct(.data$AudioMoth_ID_Numeric, na.rm=TRUE) > 1) stats::sd(.data$N_Dets_This_Plot, na.rm = TRUE) else NA_real_,
         Max_Dets_Single_Plot = if (all(is.na(.data$N_Dets_This_Plot))) NA_integer_ else max(.data$N_Dets_This_Plot, na.rm = TRUE),
-        # Calculate spatial aggregation index (variance to mean ratio)
-        Variance_Dets = if(dplyr::n() > 1) var(.data$N_Dets_This_Plot, na.rm = TRUE) else NA_real_,
+        Variance_Dets = if(dplyr::n_distinct(.data$AudioMoth_ID_Numeric, na.rm=TRUE) > 1) stats::var(.data$N_Dets_This_Plot, na.rm = TRUE) else NA_real_,
         .groups = 'drop'
       ) %>%
       dplyr::mutate(
-        # Aggregation index: >1 indicates clustering, <1 indicates regular distribution
         Spatial_Aggregation_Index = dplyr::if_else(
           !is.na(.data$Mean_Dets_Per_Active_Plot) & .data$Mean_Dets_Per_Active_Plot > 0,
           .data$Variance_Dets / .data$Mean_Dets_Per_Active_Plot,
           NA_real_
+        ),
+        Dets_Per_Plot_CV = dplyr::if_else(
+          !is.na(.data$Mean_Dets_Per_Active_Plot) & .data$Mean_Dets_Per_Active_Plot > 0 &
+            !is.na(.data$SD_Dets_Per_Active_Plot) & .data$N_Active_Plots_Species > 1,
+          .data$SD_Dets_Per_Active_Plot / .data$Mean_Dets_Per_Active_Plot,
+          NA_real_
         )
-      )
+      ) %>%
+      dplyr::select("Scientific_Name", "Mean_Dets_Per_Active_Plot", "SD_Dets_Per_Active_Plot",
+                    "Max_Dets_Single_Plot", "Dets_Per_Plot_CV", "Spatial_Aggregation_Index") # Select final columns
   }
-
-  spatial_metrics <- spatial_metrics %>%
-    dplyr::mutate(
-      Dets_Per_Plot_CV = dplyr::if_else(
-        !is.na(.data$Mean_Dets_Per_Active_Plot) & .data$Mean_Dets_Per_Active_Plot > 0 &
-          !is.na(.data$SD_Dets_Per_Active_Plot) & .data$N_Active_Plots_Species > 1,
-        .data$SD_Dets_Per_Active_Plot / .data$Mean_Dets_Per_Active_Plot,
-        NA_real_
-      )
-    ) %>%
-    dplyr::select(-"N_Active_Plots_Species", -"Variance_Dets")
+  # Ensure all species from input are present in output, even if they had no spatial data
+  all_species_names <- dplyr::distinct(detection_data, .data$Scientific_Name)
+  spatial_metrics <- dplyr::left_join(all_species_names, spatial_metrics, by = "Scientific_Name")
 
   return(spatial_metrics)
 }
@@ -377,42 +384,97 @@ calculate_spatial_metrics <- function(detection_data, total_plots) {
 #' Calculate statistical anomaly scores for pattern metrics
 #' @keywords internal
 calculate_anomaly_scores <- function(metrics_df) {
-  # Function to calculate robust z-score using MAD
-  robust_z_score <- function(x) {
-    x_median <- median(x, na.rm = TRUE)
-    x_mad <- mad(x, na.rm = TRUE)
-    if (x_mad == 0) return(rep(0, length(x)))
-    abs(x - x_median) / x_mad
+  if (nrow(metrics_df) <= 1) { # Need at least 2 species to calculate robust z-scores meaningfully
+    # Return the input df with NA anomaly columns if not enough data
+    return(
+      metrics_df %>%
+        dplyr::mutate(
+          CI_Anomaly_Score = NA_real_,
+          Temporal_Anomaly_Score = NA_real_,
+          Spatial_Anomaly_Score = NA_real_,
+          Overall_Anomaly_Score = NA_real_
+        ) %>%
+        dplyr::select(
+          dplyr::any_of(c("Scientific_Name", "CI_Anomaly_Score",
+                          "Temporal_Anomaly_Score", "Spatial_Anomaly_Score",
+                          "Overall_Anomaly_Score"))
+        )
+    )
   }
 
-  # Calculate anomaly scores for different metric groups
-  anomaly_df <- metrics_df %>%
+  # Function to calculate robust z-score using MAD
+  robust_z_score <- function(x) {
+    # Ensure x is numeric and handle cases with all NAs or single non-NA value
+    if (!is.numeric(x)) return(rep(NA_real_, length(x)))
+    x_valid <- x[!is.na(x)]
+    if (length(x_valid) < 2) return(rep(NA_real_, length(x))) # MAD needs at least 2 points to be non-zero generally
+
+    x_median <- stats::median(x_valid, na.rm = TRUE)
+    x_mad <- stats::mad(x_valid, na.rm = TRUE)
+
+    # If MAD is 0 (e.g., all valid values are the same), z-scores are undefined or 0.
+    # We'll return 0 if x == x_median, and Inf or a large number otherwise.
+    # For simplicity in anomaly scoring, let's return 0 if MAD is 0.
+    # Or, treat them as NA if MAD is 0 and not all values are identical to median
+    # to avoid infinite scores. Let's default to 0 for stability.
+    z <- rep(NA_real_, length(x))
+    idx_not_na <- !is.na(x)
+
+    if (x_mad == 0) {
+      # if mad is 0, all non-NA values identical to median get z=0, others NA
+      z[idx_not_na & x == x_median] <- 0
+      # if mad is 0, but some values are not median, this is an issue.
+      # For now, stick to 0 if x == x_median, implies no deviation.
+      # If x != x_median and mad = 0, it means all other points were NA,
+      # or data is very unusual.
+    } else {
+      z[idx_not_na] <- abs(x[idx_not_na] - x_median) / x_mad
+    }
+    return(z)
+  }
+
+  # Define columns for each anomaly group, ensuring they exist in metrics_df
+  ci_cols <- c("Median_CI", "CI_IQR", "CI_Skewness")
+  temporal_cols <- c("Daily_Dets_CV", "Hourly_Activity_Concentration", "Hourly_R_Statistic")
+  spatial_cols <- c("Plot_Occupancy_Pct", "Dets_Per_Plot_CV", "Spatial_Aggregation_Index")
+
+  # Check for existence and prepare data for anomaly calculation
+  # For CI_Skewness, use abs value. For Spatial_Aggregation_Index, use log1p.
+  metrics_for_anomaly <- metrics_df %>%
     dplyr::mutate(
-      # CI-based anomaly scores
-      CI_Median_Anomaly = robust_z_score(.data$Median_CI),
-      CI_IQR_Anomaly = robust_z_score(.data$CI_IQR),
-      CI_Skew_Anomaly = robust_z_score(abs(.data$CI_Skewness)),
+      CI_Skewness_Abs = if ("CI_Skewness" %in% names(.)) abs(.data$CI_Skewness) else NA_real_,
+      Spatial_Aggregation_Index_Log1p = if ("Spatial_Aggregation_Index" %in% names(.)) log1p(.data$Spatial_Aggregation_Index) else NA_real_
+    )
 
-      # Temporal anomaly scores
-      Daily_CV_Anomaly = robust_z_score(.data$Daily_Dets_CV),
-      Hourly_Conc_Anomaly = robust_z_score(.data$Hourly_Activity_Concentration),
-      Hourly_R_Anomaly = robust_z_score(.data$Hourly_R_Statistic),
+  # Calculate anomaly scores for different metric groups
+  anomaly_df <- metrics_for_anomaly %>%
+    dplyr::mutate(
+      CI_Median_Anomaly = if ("Median_CI" %in% names(.)) robust_z_score(.data$Median_CI) else NA_real_,
+      CI_IQR_Anomaly = if ("CI_IQR" %in% names(.)) robust_z_score(.data$CI_IQR) else NA_real_,
+      CI_Skew_Anomaly_Calc = if ("CI_Skewness_Abs" %in% names(.)) robust_z_score(.data$CI_Skewness_Abs) else NA_real_, # Use the absolute skewness
 
-      # Spatial anomaly scores
-      Plot_Occ_Anomaly = robust_z_score(.data$Plot_Occupancy_Pct),
-      Spatial_CV_Anomaly = robust_z_score(.data$Dets_Per_Plot_CV),
-      Spatial_Agg_Anomaly = robust_z_score(log1p(.data$Spatial_Aggregation_Index)),
+      Daily_CV_Anomaly = if ("Daily_Dets_CV" %in% names(.)) robust_z_score(.data$Daily_Dets_CV) else NA_real_,
+      Hourly_Conc_Anomaly = if ("Hourly_Activity_Concentration" %in% names(.)) robust_z_score(.data$Hourly_Activity_Concentration) else NA_real_,
+      Hourly_R_Anomaly = if ("Hourly_R_Statistic" %in% names(.)) robust_z_score(.data$Hourly_R_Statistic) else NA_real_,
 
-      # Composite scores (mean of component scores, capped at 5)
-      CI_Anomaly_Score = pmin(rowMeans(dplyr::across(c(CI_Median_Anomaly, CI_IQR_Anomaly, CI_Skew_Anomaly)), na.rm = TRUE), 5),
-      Temporal_Anomaly_Score = pmin(rowMeans(dplyr::across(c(Daily_CV_Anomaly, Hourly_Conc_Anomaly, Hourly_R_Anomaly)), na.rm = TRUE), 5),
-      Spatial_Anomaly_Score = pmin(rowMeans(dplyr::across(c(Plot_Occ_Anomaly, Spatial_CV_Anomaly, Spatial_Agg_Anomaly)), na.rm = TRUE), 5),
+      Plot_Occ_Anomaly = if ("Plot_Occupancy_Pct" %in% names(.)) robust_z_score(.data$Plot_Occupancy_Pct) else NA_real_,
+      Spatial_CV_Anomaly_Calc = if ("Dets_Per_Plot_CV" %in% names(.)) robust_z_score(.data$Dets_Per_Plot_CV) else NA_real_,
+      Spatial_Agg_Anomaly_Calc = if ("Spatial_Aggregation_Index_Log1p" %in% names(.)) robust_z_score(.data$Spatial_Aggregation_Index_Log1p) else NA_real_ # Use log1p version
+    )
 
-      # Overall anomaly score
-      Overall_Anomaly_Score = rowMeans(dplyr::across(c(CI_Anomaly_Score, Temporal_Anomaly_Score, Spatial_Anomaly_Score)), na.rm = TRUE)
+  # Calculate composite scores, ensuring the input columns for rowMeans exist
+  # If any component anom score is NA, the mean might be NA. pmin handles NAs by returning them.
+  anomaly_df <- anomaly_df %>%
+    dplyr::mutate(
+      CI_Anomaly_Score = pmin(rowMeans(dplyr::select(., dplyr::any_of(c("CI_Median_Anomaly", "CI_IQR_Anomaly", "CI_Skew_Anomaly_Calc"))), na.rm = TRUE), 5),
+      Temporal_Anomaly_Score = pmin(rowMeans(dplyr::select(., dplyr::any_of(c("Daily_CV_Anomaly", "Hourly_Conc_Anomaly", "Hourly_R_Anomaly"))), na.rm = TRUE), 5),
+      Spatial_Anomaly_Score = pmin(rowMeans(dplyr::select(., dplyr::any_of(c("Plot_Occ_Anomaly", "Spatial_CV_Anomaly_Calc", "Spatial_Agg_Anomaly_Calc"))), na.rm = TRUE), 5)
     ) %>%
-    dplyr::select(Scientific_Name, CI_Anomaly_Score, Temporal_Anomaly_Score,
-                  Spatial_Anomaly_Score, Overall_Anomaly_Score)
+    dplyr::mutate(
+      Overall_Anomaly_Score = rowMeans(dplyr::select(., dplyr::any_of(c("CI_Anomaly_Score", "Temporal_Anomaly_Score", "Spatial_Anomaly_Score"))), na.rm = TRUE)
+    ) %>%
+    dplyr::select(dplyr::any_of(c("Scientific_Name", "CI_Anomaly_Score", "Temporal_Anomaly_Score",
+                                  "Spatial_Anomaly_Score", "Overall_Anomaly_Score")))
 
   return(anomaly_df)
 }
