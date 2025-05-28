@@ -4,7 +4,16 @@
 \alias{read_birdnet_data}
 \title{Read and Standardize BirdNET Detection Data}
 \usage{
-read_birdnet_data(file_path, species_list = NULL, min_confidence = 0.01)
+read_birdnet_data(
+  file_path,
+  species_list = NULL,
+  min_confidence = 0.01,
+  time_range = NULL,
+  hour_range = NULL,
+  exclude_weekends = FALSE,
+  custom_filter = NULL,
+  use_data_table = FALSE
+)
 }
 \arguments{
 \item{file_path}{Character string: The full path to the BirdNET CSV file (or compatible format).}
@@ -14,6 +23,21 @@ only detections of these species will be kept. Default is `NULL` (all species).}
 
 \item{min_confidence}{Numeric. The minimum confidence score for a detection to be
 kept. Detections below this threshold are discarded. Default is `0.01`.}
+
+\item{time_range}{Optional. A vector of two POSIXct objects specifying the
+start and end times for filtering detections. Default is `NULL` (no time filtering).}
+
+\item{hour_range}{Optional. A numeric vector of two integers (0-23) specifying
+the hour range for filtering detections. Default is `NULL` (all hours).}
+
+\item{exclude_weekends}{Logical. If `TRUE`, excludes detections from weekends
+(Saturday and Sunday). Default is `FALSE`.}
+
+\item{custom_filter}{Optional. A function that takes the detection data frame
+as input and returns a filtered data frame. Default is `NULL`.}
+
+\item{use_data_table}{Logical. If `TRUE` and the data.table package is available,
+uses data.table::fread for potentially faster reading of large files. Default is `FALSE`.}
 }
 \value{
 A `tibble` (data frame) with processed detection data. Key columns include:
@@ -66,8 +90,26 @@ mock_df <- data.frame(
 )
 readr::write_csv(mock_df, temp_csv_path)
 
+# Basic usage
 detections_data <- read_birdnet_data(temp_csv_path, min_confidence = 0.7)
-print(detections_data)
+
+# With time filtering
+start_time <- as.POSIXct("2023-05-15 09:00:00", tz = "UTC")
+end_time <- as.POSIXct("2023-05-15 12:00:00", tz = "UTC")
+detections_filtered <- read_birdnet_data(temp_csv_path,
+                                         time_range = c(start_time, end_time))
+
+# Filter for dawn and dusk hours only
+crepuscular_detections <- read_birdnet_data(temp_csv_path,
+                                             hour_range = c(5, 8))
+
+# Custom filter function
+high_conf_long_dets <- function(df) {
+  df \%>\% dplyr::filter(Confidence > 0.8 & Detection_Duration > 2)
+}
+detections_custom <- read_birdnet_data(temp_csv_path,
+                                       custom_filter = high_conf_long_dets)
+
 unlink(temp_csv_path) # Clean up
 }
 }

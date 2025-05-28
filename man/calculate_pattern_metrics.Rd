@@ -6,7 +6,8 @@
 \usage{
 calculate_pattern_metrics(
   detection_data,
-  ci_thresholds = c(high = 0.7, medium = 0.5)
+  ci_thresholds = c(high = 0.7, medium = 0.5),
+  calculate_anomalies = TRUE
 )
 }
 \arguments{
@@ -26,6 +27,9 @@ Typically, this is the output of `read_birdnet_data()` after adding the
 \item{ci_thresholds}{A named numeric vector specifying confidence thresholds.
 Default is `c(high = 0.7, medium = 0.5)`. These are used to calculate
 percentages of detections above these confidence levels. Names must be "high" and "medium".}
+
+\item{calculate_anomalies}{Logical. If `TRUE` (default), calculates statistical
+anomaly scores for each species based on their metrics.}
 }
 \value{
 A `tibble` where each row represents a species and columns are the
@@ -33,22 +37,26 @@ A `tibble` where each row represents a species and columns are the
   \itemize{
     \item General: `Total_Detections`, `N_Plots_Detected`, `Plot_Occupancy_Pct`.
     \item CI Metrics: `Median_CI`, `Mean_CI`, `Min_CI`, `Max_CI`, `Q1_CI`, `Q3_CI`,
-          `CI_IQR`, `Pct_Dets_Above_CI_High`, `Pct_Dets_Above_CI_Medium`.
+          `CI_IQR`, `CI_Skewness`, `Pct_Dets_Above_CI_High`, `Pct_Dets_Above_CI_Medium`.
     \item Temporal (Daily): `N_Unique_Days_Detected`, `Mean_Dets_Per_Active_Day`,
-          `SD_Dets_Per_Active_Day`, `Max_Dets_Single_Day`, `Daily_Dets_CV`
-          (Coefficient of Variation), `Pct_Days_Active`.
+          `SD_Dets_Per_Active_Day`, `Max_Dets_Single_Day`, `Daily_Dets_CV`,
+          `Pct_Days_Active`.
     \item Temporal (Hourly): `N_Unique_Hours_Detected`, `Hourly_Evenness_J`
-          (Shannon's Evenness), `Hourly_Activity_Concentration` (1 - Evenness).
+          (Shannon's Evenness), `Hourly_Simpson_D` (Simpson's Diversity),
+          `Hourly_Activity_Concentration` (1 - Evenness), `Peak_Hour`,
+          `Mean_Hour_Circular`, `Hourly_R_Statistic`.
     \item Spatial: `Mean_Dets_Per_Active_Plot`, `SD_Dets_Per_Active_Plot`,
-          `Max_Dets_Single_Plot`, `Dets_Per_Plot_CV`.
+          `Max_Dets_Single_Plot`, `Dets_Per_Plot_CV`, `Spatial_Aggregation_Index`.
+    \item Anomaly Scores (if calculate_anomalies = TRUE): `CI_Anomaly_Score`,
+          `Temporal_Anomaly_Score`, `Spatial_Anomaly_Score`, `Overall_Anomaly_Score`.
   }
 }
 \description{
 This is the core function for calculating a wide range of quantitative
 pattern indicators for each species from processed detection data.
 These metrics cover general detection statistics, confidence interval (CI)
-distributions, temporal patterns (daily and hourly), and spatial patterns
-(across plots/recorders).
+distributions, temporal patterns (daily and hourly), spatial patterns
+(across plots/recorders), and statistical anomaly scores.
 }
 \examples{
 \dontrun{
@@ -70,9 +78,10 @@ example_detections <- dplyr::tibble(
 metrics <- calculate_pattern_metrics(example_detections)
 print(metrics)
 
-# Using custom CI thresholds
-metrics_custom_ci <- calculate_pattern_metrics(example_detections,
-                                              ci_thresholds = c(high = 0.8, medium = 0.4))
-print(metrics_custom_ci)
+# Using custom CI thresholds and skipping anomaly detection
+metrics_custom <- calculate_pattern_metrics(example_detections,
+                                           ci_thresholds = c(high = 0.8, medium = 0.4),
+                                           calculate_anomalies = FALSE)
+print(metrics_custom)
 }
 }

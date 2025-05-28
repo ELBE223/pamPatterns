@@ -1,5 +1,4 @@
 # File: R/globals.R
-
 # This file is used to declare global variables that are used in a way
 # that R CMD check might flag as "no visible binding for global variable".
 # This typically occurs with dplyr when using bare column names or the .data pronoun.
@@ -11,9 +10,6 @@ utils::globalVariables(c(
   ".data",
 
   # For raw column names from the input CSV used in read_birdnet_data()
-  # before they are standardized, especially if used directly in dplyr verbs
-  # without .data$ (though the explicit rename in the current read_birdnet_data
-  # should handle most of this, this is a safeguard for R CMD check's parsing).
   "Scientific name",
   "Confidence",
   "Start (s)",
@@ -21,11 +17,48 @@ utils::globalVariables(c(
   "File",
   "Common name",
 
-  # Add any other column names here that appear in "no visible binding" notes
-  # and are used as bare names within dplyr verbs in your functions.
-  # Most of your other standardized column names (e.g., Scientific_Name, Total_Detections)
-  # should be fine if they are on the left side of assignments or already used with .data$.
-  # If new notes appear for other columns, add them to this vector.
+  # New columns added in enhanced version
+  "Detection_Hour",
+  "Detection_Date",
+  "N_Dets_This_Day",
+  "N_Dets_This_Hour",
+  "Total_Dets_Species",
+  "Prop_Dets_This_Hour",
+  "Prop_Squared",
+  "Hour_Radians",
+  "Cos_Hour",
+  "Sin_Hour",
+  "Mean_Cos",
+  "Mean_Sin",
+  "N_Dets_This_Plot",
+  "N_Active_Plots_Species",
+  "Variance_Dets",
 
-  NULL # utils::globalVariables expects a character vector, NULL is ignored but keeps structure clean.
+  # Anomaly score columns
+  "CI_Median_Anomaly",
+  "CI_IQR_Anomaly",
+  "CI_Skew_Anomaly",
+  "Daily_CV_Anomaly",
+  "Hourly_Conc_Anomaly",
+  "Hourly_R_Anomaly",
+  "Plot_Occ_Anomaly",
+  "Spatial_CV_Anomaly",
+  "Spatial_Agg_Anomaly",
+
+  # Data quality columns
+  "Date_Index",
+  "Species_This_Day",
+  "Cumulative_Species",
+  "Days_Span",
+  "n",
+
+  # Visualization columns
+  "Size_Category",
+  "Has_Flag",
+  "Anomaly_Type",
+  "Score",
+  "Hour_Label",
+  "Recorder_Label",
+
+  NULL  # Keep structure clean
 ))

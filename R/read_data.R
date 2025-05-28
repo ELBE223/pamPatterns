@@ -10,6 +10,16 @@
 #'   only detections of these species will be kept. Default is `NULL` (all species).
 #' @param min_confidence Numeric. The minimum confidence score for a detection to be
 #'   kept. Detections below this threshold are discarded. Default is `0.01`.
+#' @param time_range Optional. A vector of two POSIXct objects specifying the
+#'   start and end times for filtering detections. Default is `NULL` (no time filtering).
+#' @param hour_range Optional. A numeric vector of two integers (0-23) specifying
+#'   the hour range for filtering detections. Default is `NULL` (all hours).
+#' @param exclude_weekends Logical. If `TRUE`, excludes detections from weekends
+#'   (Saturday and Sunday). Default is `FALSE`.
+#' @param custom_filter Optional. A function that takes the detection data frame
+#'   as input and returns a filtered data frame. Default is `NULL`.
+#' @param use_data_table Logical. If `TRUE` and the data.table package is available,
+#'   uses data.table::fread for potentially faster reading of large files. Default is `FALSE`.
 #'
 #' @return A `tibble` (data frame) with processed detection data. Key columns include:
 #'   \itemize{
@@ -56,11 +66,36 @@
 #' )
 #' readr::write_csv(mock_df, temp_csv_path)
 #'
+#' # Basic usage
 #' detections_data <- read_birdnet_data(temp_csv_path, min_confidence = 0.7)
-#' print(detections_data)
+#'
+#' # With time filtering
+#' start_time <- as.POSIXct("2023-05-15 09:00:00", tz = "UTC")
+#' end_time <- as.POSIXct("2023-05-15 12:00:00", tz = "UTC")
+#' detections_filtered <- read_birdnet_data(temp_csv_path,
+#'                                          time_range = c(start_time, end_time))
+#'
+#' # Filter for dawn and dusk hours only
+#' crepuscular_detections <- read_birdnet_data(temp_csv_path,
+#'                                              hour_range = c(5, 8))
+#'
+#' # Custom filter function
+#' high_conf_long_dets <- function(df) {
+#'   df %>% dplyr::filter(Confidence > 0.8 & Detection_Duration > 2)
+#' }
+#' detections_custom <- read_birdnet_data(temp_csv_path,
+#'                                        custom_filter = high_conf_long_dets)
+#'
 #' unlink(temp_csv_path) # Clean up
 #' }
-read_birdnet_data <- function(file_path, species_list = NULL, min_confidence = 0.01) {
+read_birdnet_data <- function(file_path,
+                              species_list = NULL,
+                              min_confidence = 0.01,
+                              time_range = NULL,
+                              hour_range = NULL,
+                              exclude_weekends = FALSE,
+                              custom_filter = NULL,
+                              use_data_table = FALSE) {
 
   # Validate inputs
   if (!file.exists(file_path)) {
@@ -72,13 +107,48 @@ read_birdnet_data <- function(file_path, species_list = NULL, min_confidence = 0
   if (!is.null(species_list) && !is.character(species_list)) {
     stop("'species_list' must be a character vector or NULL.")
   }
+  if (!is.null(time_range)) {
+    if (length(time_range) != 2) {
+      stop("'time_range' must be a vector of two POSIXct objects.")
+    }
+    if (!all(inherits(time_range, "POSIXct"))) {
+      stop("'time_range' elements must be POSIXct objects.")
+    }
+  }
+  if (!is.null(hour_range)) {
+    if (length(hour_range) != 2 || !is.numeric(hour_range) ||
+        any(hour_range < 0) || any(hour_range > 23)) {
+      stop("'hour_range' must be a numeric vector of two integers between 0 and 23.")
+    }
+  }
+  if (!is.logical(exclude_weekends) || length(exclude_weekends) != 1) {
+    stop("'exclude_weekends' must be a single logical value.")
+  }
+  if (!is.null(custom_filter) && !is.function(custom_filter)) {
+    stop("'custom_filter' must be a function or NULL.")
+  }
+  if (!is.logical(use_data_table) || length(use_data_table) != 1) {
+    stop("'use_data_table' must be a single logical value.")
+  }
 
   # Read data
-  raw_data <- tryCatch({
-    readr::read_csv(file_path, show_col_types = FALSE, progress = FALSE, guess_max = 10000)
-  }, error = function(e) {
-    stop("Failed to read CSV file: ", file_path, "\nOriginal error: ", e$message)
-  })
+  if (use_data_table && requireNamespace("data.table", quietly = TRUE)) {
+    raw_data <- tryCatch({
+      dt <- data.table::fread(file_path, showProgress = FALSE)
+      # Convert to tibble for consistency with rest of package
+      dplyr::as_tibble(dt)
+    }, error = function(e) {
+      # Fall back to readr if data.table fails
+      message("data.table::fread failed, falling back to readr::read_csv")
+      readr::read_csv(file_path, show_col_types = FALSE, progress = FALSE, guess_max = 10000)
+    })
+  } else {
+    raw_data <- tryCatch({
+      readr::read_csv(file_path, show_col_types = FALSE, progress = FALSE, guess_max = 10000)
+    }, error = function(e) {
+      stop("Failed to read CSV file: ", file_path, "\nOriginal error: ", e$message)
+    })
+  }
 
   if (nrow(raw_data) == 0) {
     return(dplyr::tibble())
@@ -105,28 +175,16 @@ read_birdnet_data <- function(file_path, species_list = NULL, min_confidence = 0
       End_s = `End (s)`,
       Original_File_Path = File
     ) %>%
-    # Create Filename_Only early, as it's used in warning logic below
     dplyr::mutate(Filename_Only = basename(.data$Original_File_Path))
-
 
   if ("Common name" %in% current_csv_cols) {
     standardized_data <- standardized_data %>%
       dplyr::rename(Common_Name = `Common name`)
   }
-  # --- End of Explicit Renaming Block ---
-
-  required_renamed_cols <- c("Scientific_Name", "Confidence", "Start_s", "End_s", "Original_File_Path", "Filename_Only")
-  missing_renamed_cols <- setdiff(required_renamed_cols, names(standardized_data))
-
-  if (length(missing_renamed_cols) > 0) {
-    stop("Internal error: Failed to standardize column names or create Filename_Only. Missing after processing: ",
-         paste(missing_renamed_cols, collapse = ", "))
-  }
 
   # Extract metadata from file paths
-  processed_data <- standardized_data %>% # standardized_data now includes Filename_Only
+  processed_data <- standardized_data %>%
     dplyr::mutate(
-      # Filename_Only is already present
       DateTimeString_From_Filename = stringr::str_extract(.data$Filename_Only, "\\d{8}[_T\\- ]?\\d{6}"),
       File_Start_DateTime_UTC = lubridate::ymd_hms(.data$DateTimeString_From_Filename, tz = "UTC", quiet = TRUE),
       Start_s_numeric = as.numeric(.data$Start_s),
@@ -138,11 +196,9 @@ read_birdnet_data <- function(file_path, species_list = NULL, min_confidence = 0
     ) %>%
     dplyr::select(-"Start_s_numeric", -"End_s_numeric")
 
-
-  original_row_count <- nrow(processed_data) # Count before filtering by date parsing success
+  original_row_count <- nrow(processed_data)
 
   # Keep track of rows before filtering by date for better warning message
-  # We use 'standardized_data' here which has Filename_Only but not yet filtered by date parsing
   rows_before_date_filter <- standardized_data %>%
     dplyr::mutate(
       DateTimeString_temp = stringr::str_extract(.data$Filename_Only, "\\d{8}[_T\\- ]?\\d{6}"),
@@ -154,37 +210,67 @@ read_birdnet_data <- function(file_path, species_list = NULL, min_confidence = 0
 
   if (nrow(processed_data) < original_row_count && original_row_count > 0) {
     dropped_rows <- original_row_count - nrow(processed_data)
-
-    # Identify one problematic filename from those that were dropped
-    # Compare rows_before_date_filter (which has Filename_Only and the temp parsed date)
-    # with the successfully parsed rows in processed_data
     problematic_rows_info <- rows_before_date_filter %>%
       dplyr::filter(is.na(.data$File_Start_DateTime_UTC_temp))
 
     example_problem_filename <- if(nrow(problematic_rows_info) > 0) {
       utils::head(problematic_rows_info$Filename_Only, 1)
     } else {
-      # This case might occur if filtering happened for other reasons not caught by this logic,
-      # or if all rows parsed correctly but some were still dropped (unlikely with current code).
-      "Could not identify a specific problematic filename (all might have parsed or complex issue)."
+      "Could not identify a specific problematic filename."
     }
 
     warning(dropped_rows, " row(s) were removed due to inability to parse date/time from filenames. ",
             "Ensure filenames contain a 'YYYYMMDD_HHMMSS' (or similar) pattern and are in UTC. ",
-            "Example of problematic filename (first one found among dropped rows): '", example_problem_filename, "'")
+            "Example of problematic filename: '", example_problem_filename, "'")
   }
 
   if (nrow(processed_data) == 0) {
     return(dplyr::tibble())
   }
 
+  # Apply filters
+  # Species filter
   if (!is.null(species_list)) {
     processed_data <- processed_data %>%
       dplyr::filter(.data$Scientific_Name %in% species_list)
   }
 
+  # Confidence filter
   processed_data <- processed_data %>%
     dplyr::filter(.data$Confidence >= min_confidence)
+
+  # Time range filter
+  if (!is.null(time_range)) {
+    processed_data <- processed_data %>%
+      dplyr::filter(.data$Detection_Start_DateTime_UTC >= time_range[1],
+                    .data$Detection_Start_DateTime_UTC <= time_range[2])
+  }
+
+  # Hour range filter
+  if (!is.null(hour_range)) {
+    # Handle hour ranges that cross midnight
+    if (hour_range[1] <= hour_range[2]) {
+      processed_data <- processed_data %>%
+        dplyr::filter(.data$Detection_Hour >= hour_range[1],
+                      .data$Detection_Hour <= hour_range[2])
+    } else {
+      # Range crosses midnight (e.g., 22 to 2)
+      processed_data <- processed_data %>%
+        dplyr::filter(.data$Detection_Hour >= hour_range[1] |
+                        .data$Detection_Hour <= hour_range[2])
+    }
+  }
+
+  # Weekend filter
+  if (exclude_weekends) {
+    processed_data <- processed_data %>%
+      dplyr::filter(!lubridate::wday(.data$Detection_Date) %in% c(1, 7))
+  }
+
+  # Custom filter
+  if (!is.null(custom_filter) && is.function(custom_filter)) {
+    processed_data <- custom_filter(processed_data)
+  }
 
   return(processed_data)
 }
