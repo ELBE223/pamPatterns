@@ -1,3 +1,5 @@
+# File: R/reporting_utils.R
+
 #' Print Summary of Pattern Metrics
 #'
 #' Prints a concise summary of the calculated pattern metrics to the console.
@@ -13,6 +15,7 @@
 #' @return Invisible `NULL`. This function is called for its side effect of
 #'   printing to the console.
 #' @export
+#' @importFrom dplyr arrange slice_head select all_of n_distinct desc
 #' @examples
 #' \dontrun{
 #' # Assume 'flagged_species_data' is the output from flag_species()
@@ -90,7 +93,6 @@ print_metrics_summary <- function(metrics_df, n = 10) {
 
   if (length(summary_cols_existing) > 0) {
     summary_stats_list <- lapply(summary_cols_existing, function(col_name) {
-      # Calculate median only if there are non-NA values
       valid_data <- metrics_df[[col_name]][!is.na(metrics_df[[col_name]])]
       if (length(valid_data) > 0) {
         stats::median(valid_data, na.rm = TRUE)
@@ -100,9 +102,7 @@ print_metrics_summary <- function(metrics_df, n = 10) {
     })
     names(summary_stats_list) <- paste0(summary_cols_existing, " (median)")
 
-    # Convert list to a data frame for printing
     summary_df <- as.data.frame(summary_stats_list)
-    # Transpose for better readability in console
     print(t(summary_df), quote = FALSE)
   } else {
     cat("No key metric columns found for overall distribution summary.\n")
@@ -113,7 +113,7 @@ print_metrics_summary <- function(metrics_df, n = 10) {
 }
 
 
-#' Export Metrics to CSV File
+#' Export Metrics to CSV File (Super Manual Control - Take 7)
 #'
 #' Writes the calculated (and optionally flagged) metrics data frame to a CSV file.
 #' Can optionally include metadata lines at the beginning of the CSV file,
@@ -122,81 +122,134 @@ print_metrics_summary <- function(metrics_df, n = 10) {
 #' @param metrics_df A `tibble` or `data.frame` containing the metrics to export.
 #' @param file_path Character string: The desired path for the output CSV file.
 #'   The directory will be created if it does not exist.
-#' @param include_metadata Logical. If `TRUE` (default), adds metadata lines
-#'   (e.g., generation date, package version) as comments at the top of the CSV.
+#' @param include_metadata Logical. If `TRUE` (default), adds metadata lines.
 #'
 #' @return Invisibly returns the `file_path` of the exported file.
-#'   Called for its side effect of writing a file.
 #' @export
 #' @importFrom utils packageVersion
+#' @importFrom dplyr n_distinct
+#' @importFrom readr write_csv
+#'
 #' @examples
 #' \dontrun{
-#' # Assume 'flagged_species_data' is the output from flag_species()
-#' # output_file <- "my_pam_patterns_results.csv"
-#' # export_metrics(flagged_species_data, output_file)
-#' # message("Metrics exported to: ", output_file)
-#' #
-#' # # Export without metadata
-#' # export_metrics(flagged_species_data, "results_no_meta.csv", include_metadata = FALSE)
+#' temp_dir <- tempdir()
+#' example_metrics_df <- dplyr::tibble(
+#'   Scientific_Name = "Sylvia atricapilla",
+#'   Total_Detections = 100L,
+#'   Median_CI = 0.5,
+#'   Plot_Occupancy_Pct = 0.1,
+#'   Daily_Dets_CV = 1.2,
+#'   Hourly_Activity_Concentration = 0.3,
+#'   Notes = "A species, with notes"
+#' )
+#'
+#' # Test with metadata
+#' output_file_meta <- file.path(temp_dir, "my_pam_patterns_results_meta_take7.csv")
+#' export_metrics(example_metrics_df, output_file_meta, include_metadata = TRUE)
+#' print(paste("Metadata file written to:", output_file_meta))
+#' print(readLines(output_file_meta, n = 10))
+#'
+#' # Reloading this file:
+#' reloaded_meta_readr <- readr::read_csv(output_file_meta, comment = "#", show_col_types = FALSE)
+#' print("Reloaded with readr:")
+#' print(head(reloaded_meta_readr))
+#' print(dim(reloaded_meta_readr))
+#'
+#' reloaded_meta_fread <- data.table::fread(output_file_meta) # fread skips comments
+#' print("Reloaded with fread:")
+#' print(head(reloaded_meta_fread))
+#' print(dim(reloaded_meta_fread))
+#'
+#' # Test without metadata
+#' output_file_no_meta <- file.path(temp_dir, "my_pam_patterns_results_no_meta_take7.csv")
+#' export_metrics(example_metrics_df, output_file_no_meta, include_metadata = FALSE)
+#' print(paste("No-metadata file written to:", output_file_no_meta))
+#' print(readLines(output_file_no_meta, n = 10))
+#' reloaded_no_meta_readr <- readr::read_csv(output_file_no_meta, show_col_types = FALSE)
+#' print(head(reloaded_no_meta_readr))
+#'
+#' unlink(c(output_file_meta, output_file_no_meta)) # Clean up
 #' }
 export_metrics <- function(metrics_df, file_path, include_metadata = TRUE) {
 
   if (!is.data.frame(metrics_df)) {
     stop("'metrics_df' must be a data frame or tibble.")
   }
+  # No nrow(metrics_df) == 0 check here, as we handle it by writing header only if empty.
   if (!is.character(file_path) || length(file_path) != 1) {
     stop("'file_path' must be a single character string.")
   }
 
-  # Create directory if it doesn't exist
   output_dir <- dirname(file_path)
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   }
 
   if (include_metadata) {
-    metadata_lines <- c(
-      paste0("# pamPatterns Metrics Export"),
-      paste0("# Generated: ", Sys.time()),
-      paste0("# Package: pamPatterns, Version: ", tryCatch(as.character(utils::packageVersion("pamPatterns")), error = function(e) "unknown")), # Safer way to get version
-      # Conditional metadata for species count
-      if ("Scientific_Name" %in% names(metrics_df)) {
-        paste0("# Number of unique species: ", dplyr::n_distinct(metrics_df$Scientific_Name, na.rm = TRUE))
-      } else {
-        paste0("# Number of rows in dataset: ", nrow(metrics_df)) # Fallback if no Scientific_Name
-      },
-      # Conditional metadata for total detections
-      if ("Total_Detections" %in% names(metrics_df)) {
-        paste0("# Total detections in dataset: ", sum(metrics_df$Total_Detections, na.rm = TRUE))
-      } else {
-        NULL # Add nothing if Total_Detections is not present
-      },
-      "" # Empty line before data
+    # Open file connection for writing. This creates/truncates the file.
+    file_conn <- file(file_path, "wt")
+    on.exit(close(file_conn), add = TRUE) # Ensure connection is closed
+
+    pkg_version <- tryCatch(
+      as.character(utils::packageVersion("pamPatterns")), # Ensure your package name here
+      error = function(e) "unknown"
     )
-    # Remove any NULL elements that might have been introduced by the conditional logic
-    metadata_lines <- metadata_lines[!sapply(metadata_lines, is.null)]
-    # Remove empty strings from metadata_lines if any resulted from missing columns
-    metadata_lines <- metadata_lines[metadata_lines != "" | sapply(metadata_lines, Negate(is.null))]
+    comment_lines <- c(
+      paste0("# pamPatterns Metrics Export"),
+      paste0("# Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")),
+      paste0("# Package: pamPatterns, Version: ", pkg_version)
+    )
+    if (nrow(metrics_df) > 0 && "Scientific_Name" %in% names(metrics_df)) {
+      comment_lines <- c(comment_lines, paste0("# Number of unique species: ", dplyr::n_distinct(metrics_df$Scientific_Name, na.rm = TRUE)))
+    } else if (nrow(metrics_df) > 0) {
+      comment_lines <- c(comment_lines, paste0("# Number of rows in dataset: ", nrow(metrics_df)))
+    } else {
+      comment_lines <- c(comment_lines, "# Dataset is empty.")
+    }
+    if (nrow(metrics_df) > 0 && "Total_Detections" %in% names(metrics_df) && is.numeric(metrics_df$Total_Detections)) {
+      comment_lines <- c(comment_lines, paste0("# Total detections in dataset: ", sum(metrics_df$Total_Detections, na.rm = TRUE)))
+    }
 
+    # Write comment lines to the connection
+    for (line in comment_lines) {
+      writeLines(line, con = file_conn)
+    }
 
-    # Write metadata lines first
-    tryCatch({
-      writeLines(metadata_lines, file_path)
-      # Append the data frame below the metadata
-      readr::write_csv(metrics_df, file_path, append = TRUE, na = "NA")
-    }, error = function(e) {
-      stop("Failed to write metrics to CSV with metadata: ", file_path, "\nOriginal error: ", e$message)
-    })
+    # Write the actual CSV header row (not commented) to the connection
+    # Ensure metrics_df has column names, even if empty
+    if (is.null(colnames(metrics_df)) && ncol(metrics_df) > 0) {
+      header_row_string <- paste(paste0("V", 1:ncol(metrics_df)), collapse=",")
+    } else if (ncol(metrics_df) == 0) {
+      header_row_string <- "" # Empty header for empty df with 0 cols
+    } else {
+      header_row_string <- paste(colnames(metrics_df), collapse = ",")
+    }
+    writeLines(header_row_string, con = file_conn)
 
+    # Write data rows if any, using readr::write_csv to a temp file for robust formatting
+    if (nrow(metrics_df) > 0) {
+      temp_data_file <- tempfile(fileext = ".csvdata")
+      on.exit(unlink(temp_data_file, force = TRUE), add = TRUE)
+
+      # Write metrics_df to temp file WITH header (to get data rows correctly formatted by readr)
+      readr::write_csv(metrics_df, temp_data_file, na = "NA", col_names = TRUE)
+
+      # Read the lines from the temp file, skip its header, and write to our main connection
+      data_lines_from_temp <- readLines(temp_data_file)
+      if(length(data_lines_from_temp) > 1) { # If there's more than just the header
+        for (i in 2:length(data_lines_from_temp)) { # Start from 2 to skip header
+          writeLines(data_lines_from_temp[i], con = file_conn)
+        }
+      }
+    }
+    # File connection closed by on.exit()
   } else {
-    # Write data frame directly without metadata
+    # If no metadata, just write a standard CSV using readr::write_csv
     tryCatch({
-      readr::write_csv(metrics_df, file_path, na = "NA")
+      readr::write_csv(metrics_df, file_path, na = "NA", col_names = TRUE)
     }, error = function(e) {
-      stop("Failed to write metrics to CSV: ", file_path, "\nOriginal error: ", e$message)
+      stop("Failed to write metrics to CSV (no metadata): ", file_path, "\nOriginal error: ", e$message)
     })
   }
-
-  # message("Metrics successfully exported to: ", file_path) # Optional success message
   invisible(file_path)
 }

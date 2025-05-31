@@ -53,6 +53,7 @@ utils::globalVariables(c(
   "Pct_Days_Active",
   "N_Dets_This_Hour", # Intermediate in hourly_counts
   "Total_Dets_Species", # Intermediate in hourly_metrics calculation
+  "Total_Dets_Species_Hourly", # Added from your calculate_metrics.R code
   "Prop_Dets_This_Hour", # Intermediate
   "Prop_Squared",        # Intermediate for Simpson's
   "Hour_Radians",        # Intermediate for circular stats
@@ -60,12 +61,16 @@ utils::globalVariables(c(
   "Sin_Hour",            # Intermediate
   "Mean_Cos",            # Intermediate
   "Mean_Sin",            # Intermediate
+  "Sum_Cos_Hour_Weighted", # Added from your calculate_metrics.R code
+  "Sum_Sin_Hour_Weighted", # Added from your calculate_metrics.R code
+  "Sum_N_Dets_This_Hour",  # Added from your calculate_metrics.R code
   "N_Unique_Hours_Detected",
   "Hourly_Shannon_H",
   "Hourly_Simpson_D",
+  "Hourly_Simpson_D_calc", # Added from your calculate_metrics.R code
   "Peak_Hour",
-  "Mean_Hour_Circular",  # Note: your code uses Mean_Hour_Circular, earlier notes had Mean_Hour_Circ
-  "Hourly_R_Statistic",  # Note: your code uses Hourly_R_Statistic, earlier notes had R_Statistic_Circ
+  "Mean_Hour_Circular",
+  "Hourly_R_Statistic",
   "Hourly_Max_H",        # Intermediate for Evenness
   "Hourly_Evenness_J",
   "Hourly_Activity_Concentration",
@@ -81,44 +86,30 @@ utils::globalVariables(c(
   "Dets_Per_Plot_CV",
 
   # Anomaly Score Columns (from calculate_anomaly_scores)
+  # Intermediate transformed columns:
+  "CI_Skewness_Trans",                # Added from your calculate_metrics.R code
+  "Spatial_Aggregation_Index_Trans", # Added from your calculate_metrics.R code
   # Intermediate individual anomaly scores:
-  "CI_Median_Anomaly",
-  "CI_IQR_Anomaly",
-  "CI_Skew_Anomaly",
-  "Daily_CV_Anomaly",
-  "Hourly_Conc_Anomaly", # Corresponds to Hourly_Activity_Concentration
-  "Hourly_R_Anomaly",    # Corresponds to Hourly_R_Statistic
-  "Plot_Occ_Anomaly",    # Corresponds to Plot_Occupancy_Pct
-  "Spatial_CV_Anomaly",  # Corresponds to Dets_Per_Plot_CV
-  "Spatial_Agg_Anomaly", # Corresponds to Spatial_Aggregation_Index
-  # Composite anomaly scores (these were in the last R CMD check output):
+  "Z_Median_CI",                      # Added from your calculate_metrics.R code
+  "Z_CI_IQR",                         # Added from your calculate_metrics.R code
+  "Z_CI_Skewness",                    # Added from your calculate_metrics.R code
+  "Z_Daily_Dets_CV",                  # Added from your calculate_metrics.R code
+  "Z_Hourly_Activity_Concentration",  # Added from your calculate_metrics.R code
+  "Z_Hourly_R_Statistic",             # Added from your calculate_metrics.R code
+  "Z_Plot_Occupancy_Pct",             # Added from your calculate_metrics.R code
+  "Z_Dets_Per_Plot_CV",               # Added from your calculate_metrics.R code
+  "Z_Spatial_Aggregation_Index",      # Added from your calculate_metrics.R code
+  # Composite anomaly scores:
   "CI_Anomaly_Score",
   "Temporal_Anomaly_Score",
   "Spatial_Anomaly_Score",
   "Overall_Anomaly_Score",
 
+  # tidyselect helper function for dplyr::across
+  "where", # Added to address the NOTE
+
   # --- Columns used in other S3 methods or helper functions (examples) ---
-  # (You showed R/pamPatterns-class.R which uses some of these)
-  "Review_Score", # Used in print.pam_metrics, summary.pam_metrics
-  # Flag columns (common pattern, add specific ones if they appear in NOTES)
-  # Example: "Flag_Low_Total_Detections" (if used bare in dplyr/ggplot)
-  # Generally, if flag columns are only ever created (LHS of mutate) or checked
-  # (e.g., sum(object[[flag_col_name]]) ), they might not need to be here.
-  # Add if they appear in "no visible binding" notes.
+  "Review_Score",
 
-  # Variables used in ggplot2 calls (if any are bare column names in aes())
-  # e.g., from plot_pattern_diagnostics or plot.pam_metrics
-  # "Value", "Metric", "Flag", "Is_Outlier", "Text_Label", "Date",
-  # "Mean_Confidence", "Value_Scaled", "Anomaly_Label", "Confidence_Bin", "Count", "Density",
-  # "Lower_MAD", "Upper_MAD",
-
-  # Variables from other functions if they trigger notes
-  # e.g. "AudioMoth_ID", "DateTime_Extracted", "Detection_Time_HMS",
-  # "Detection_Start_DateTime_UTC", "Detection_End_DateTime_UTC",
-  # "Species_Present", "Duration_s", "Day_Seconds", "Study_Day_Numeric",
-  # "Time_of_Day_Segment", "Hour_Factor", "Weekday", "Weekend_Flag", "Year_Day",
-  # "N_Detections", "N_Unique_Plots", "N_Unique_Dates", "N_Unique_Species",
-  # "Plot_ID", "Cumulative_Species", "Recording_Effort_Days"
-
-  NULL # utils::globalVariables expects a character vector; NULL is ignored but keeps structure.
+  NULL
 ))

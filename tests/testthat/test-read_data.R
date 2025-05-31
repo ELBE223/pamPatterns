@@ -1,5 +1,11 @@
 # File: tests/testthat/test-read_data.R
 
+library(testthat)
+library(pamPatterns)
+library(dplyr)
+library(readr)
+# library(data.table) # Not strictly needed for this test file's direct operations
+
 # --- Tests for extract_audiomoth_id ---
 test_that("extract_audiomoth_id correctly extracts IDs from various path structures", {
   paths_to_test <- c(
@@ -33,6 +39,8 @@ test_that("extract_audiomoth_id correctly extracts IDs from various path structu
 # --- Tests for read_birdnet_data ---
 test_that("read_birdnet_data handles CSV reading, filtering, and column standardization", {
   temp_csv_file <- tempfile(fileext = ".csv")
+  on.exit(unlink(temp_csv_file, force = TRUE), add = TRUE)
+
   mock_birdnet_data <- data.frame(
     `Scientific name` = c("Turdus merula", "Erithacus rubecula", "Turdus merula", "Sylvia atricapilla", "Nonexistentus birdus"),
     `Common name` = c("Blackbird", "Robin", "Blackbird", "Blackcap", "Fake Bird"),
@@ -52,14 +60,14 @@ test_that("read_birdnet_data handles CSV reading, filtering, and column standard
 
   expected_date_warning_regex <- "row\\(s\\) were removed due to inability to parse date/time"
 
-  # Test Case 1: Basic reading and confidence filtering (expects a warning, then check result)
-  # First, check for the warning when the function is called
+  # Test Case 1: Basic reading and confidence filtering
   expect_warning(
     read_birdnet_data(temp_csv_file, min_confidence = 0.75),
     regexp = expected_date_warning_regex
   )
-  # Then, call the function again to get its actual result for further checks
-  result_conf_filter <- read_birdnet_data(temp_csv_file, min_confidence = 0.75)
+  result_conf_filter <- suppressWarnings(
+    read_birdnet_data(temp_csv_file, min_confidence = 0.75)
+  )
 
   expect_s3_class(result_conf_filter, "tbl_df")
   expect_equal(nrow(result_conf_filter), 3)
@@ -69,27 +77,31 @@ test_that("read_birdnet_data handles CSV reading, filtering, and column standard
     expect_false(any(is.na(result_conf_filter$File_Start_DateTime_UTC)))
   }
 
-  # Test Case 2: Species list filtering (expects a warning, then check result)
+  # Test Case 2: Species list filtering
   expect_warning(
     read_birdnet_data(temp_csv_file,
                       species_list = c("Erithacus rubecula", "Sylvia atricapilla"),
                       min_confidence = 0.1),
     regexp = expected_date_warning_regex
   )
-  result_species_filter <- read_birdnet_data(temp_csv_file,
-                                             species_list = c("Erithacus rubecula", "Sylvia atricapilla"),
-                                             min_confidence = 0.1)
+  result_species_filter <- suppressWarnings(
+    read_birdnet_data(temp_csv_file,
+                      species_list = c("Erithacus rubecula", "Sylvia atricapilla"),
+                      min_confidence = 0.1)
+  )
   expect_equal(nrow(result_species_filter), 2)
   if (nrow(result_species_filter) > 0) {
     expect_true(all(result_species_filter$Scientific_Name %in% c("Erithacus rubecula", "Sylvia atricapilla")))
   }
 
-  # Test Case 3: Date parsing failure handling (expects a warning, then check result)
+  # Test Case 3: Date parsing failure handling
   expect_warning(
     read_birdnet_data(temp_csv_file, min_confidence = 0.1),
     regexp = expected_date_warning_regex
   )
-  result_date_parsing <- read_birdnet_data(temp_csv_file, min_confidence = 0.1)
+  result_date_parsing <- suppressWarnings(
+    read_birdnet_data(temp_csv_file, min_confidence = 0.1)
+  )
   expect_equal(nrow(result_date_parsing), 4)
   if (nrow(result_date_parsing) > 0) {
     expect_false("bad_date_in_filename.WAV" %in% basename(result_date_parsing$Original_File_Path))
@@ -98,28 +110,26 @@ test_that("read_birdnet_data handles CSV reading, filtering, and column standard
   # Test Case 4: Non-existent file path
   expect_error(read_birdnet_data("this_file_does_not_exist.csv"), regexp = "File not found")
 
-  # Test Case 5: Empty file (header only) - no specific warning expected from this
+  # Test Case 5: Empty file handling
   temp_empty_file_header_only <- tempfile(fileext = ".csv")
+  on.exit(unlink(temp_empty_file_header_only, force = TRUE), add = TRUE)
   writeLines("Scientific name,Common name,Confidence,Start (s),End (s),File", temp_empty_file_header_only)
-  result_empty_header <- read_birdnet_data(temp_empty_file_header_only)
+  result_empty_header <- expect_silent(read_birdnet_data(temp_empty_file_header_only))
   expect_s3_class(result_empty_header, "tbl_df")
   expect_equal(nrow(result_empty_header), 0)
-  unlink(temp_empty_file_header_only)
 
   temp_empty_file_0_bytes <- tempfile(fileext = ".csv")
+  on.exit(unlink(temp_empty_file_0_bytes, force = TRUE), add = TRUE)
   file.create(temp_empty_file_0_bytes)
-  result_empty_0_bytes <- read_birdnet_data(temp_empty_file_0_bytes)
+  result_empty_0_bytes <- expect_silent(read_birdnet_data(temp_empty_file_0_bytes))
   expect_s3_class(result_empty_0_bytes, "tbl_df")
   expect_equal(nrow(result_empty_0_bytes), 0)
-  unlink(temp_empty_file_0_bytes)
 
   # Test Case 6: CSV with missing essential columns
   temp_missing_col_csv <- tempfile(fileext = ".csv")
-  mock_data_missing_col <- mock_birdnet_data[, !names(mock_birdnet_data) %in% "Confidence"]
+  on.exit(unlink(temp_missing_col_csv, force = TRUE), add = TRUE)
+  mock_data_missing_col <- mock_birdnet_data[, !names(mock_birdnet_data) %in% "Confidence"] # Remove Confidence
   readr::write_csv(mock_data_missing_col, temp_missing_col_csv)
   expect_error(read_birdnet_data(temp_missing_col_csv),
-               regexp = "missing the following expected columns: Confidence")
-  unlink(temp_missing_col_csv)
-
-  unlink(temp_csv_file) # Clean up the main temporary CSV file
+               regexp = "is missing the following expected columns: Confidence\\.")
 })
